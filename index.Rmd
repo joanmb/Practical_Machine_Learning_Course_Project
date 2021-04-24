@@ -1,0 +1,195 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Joan Marine-Boada"
+date: "24/04/2021"
+output: html_document
+---
+
+# Overwiew
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise. After processing the data, 5 models are going to be fitted with cross-validation and we'll decide which one we use to apply to the test dataset.
+
+# Downloading, Loading and Preprocessing the Data
+
+The first step is to download the data and load them.
+
+```{r download_load}
+if(!file.exists("./pml-training.csv")){
+  url_training<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+  download.file(url_training, destfile="pml-training.csv")
+}
+if(!file.exists("./pml-testing.csv")){
+  url_testing<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+  download.file(url_testing, destfile="pml-testing.csv")
+}
+
+pmlTrain<-read.csv("pml-training.csv",
+                   stringsAsFactors=FALSE,
+                   na.strings=c("NA", "#DIV/0!", ""))
+pmlTest<-read.csv("pml-testing.csv",
+                  stringsAsFactors=FALSE,
+                  na.strings=c("NA", "#DIV/0!", ""))
+```
+
+Let's check what we have there
+
+```{r str}
+str(pmlTrain)
+```
+
+The training data set contains 19622 observations on 160 variables. There are a lot of columns containing mostly NAs or “ " in the training data set, so we gonna remove them both from training and testing data sets. We remove the variables 1:7 too that are not relevant fur us.
+
+```{r remove, warning=FALSE, message=FALSE, cache = TRUE}
+library(dplyr)
+
+csum<-colSums(is.na(pmlTrain))
+nanames<-names(csum[csum>19000])
+pmlTrain<-select(pmlTrain, -c(nanames))
+pmlTest<-select(pmlTest, -c(nanames))
+
+pmlTrain<-pmlTrain[,-(1:7)]
+pmlTest<-pmlTest[,-(1:7)]
+```
+
+Since we have observations in the training set enough we can split it into two subsets: training (75%) and validation (25%) in order to find out what model is better before applying it to the test set.
+
+```{r validation, warning=FALSE, message=FALSE}
+library(caret)
+pmlTrain$classe<-as.factor(pmlTrain$classe)
+
+set.seed(666)
+inTrain<-createDataPartition(y=pmlTrain$classe,
+                             p=0.75,
+                             list=FALSE)
+pmlTraining<-pmlTrain[inTrain,]
+pmlValidation<-pmlTrain[-inTrain,]
+```
+
+# Fitting models
+
+We will fit 5 models:
+
+1. Linear Discriminant Analysis (lda2)
+2. Random Forest (rf)
+3. Generalized Boosted Regression Model (gbm)
+4. Support Vector Machines (svm)
+5. K-Nearest Neighbours (knn)
+
+For every model the 3-fold Cross-Validation is used by applying *trControl=trainControl(method=“cv”, number=3)*. Then we’ll predict the classe variable for Validation data set and build confusion matrices.
+
+### 1. Linear Discriminant Analysis
+
+```{r lda2, cache = TRUE}
+set.seed(666)
+fitlda2<-train(classe~.,
+               data=pmlTraining,
+               method="lda2",
+               preProcess="knnImpute",
+               trControl=trainControl(method="cv",number=3))
+fitlda2
+```
+
+```{r predict_lda2, cache = TRUE}
+vPredict<-predict(fitlda2, pmlValidation)
+cmlda2<-confusionMatrix(pmlValidation$classe,vPredict)
+cmlda2
+```
+
+### 2. Random Forests
+
+```{r rf, cache = TRUE, warning=FALSE, message=FALSE,}
+set.seed(666)
+library(randomForest)
+fitrf<-train(classe~.,
+             data=pmlTraining,
+             method="rf",
+             preProcess="knnImpute",
+             trControl=trainControl(method="cv", number=3))
+fitrf
+```
+
+```{r predict_rf, cache = TRUE}
+vPredict<-predict(fitrf, pmlValidation)
+cmrf<-confusionMatrix(pmlValidation$classe,vPredict)
+cmrf
+```
+
+### 3. Generalized Boosted Regression Model
+
+```{r gbm, , cache = TRUE, , warning=FALSE, message=FALSE,}
+set.seed(666)
+library(gbm)
+fitgbm<-train(classe~.,
+              data=pmlTraining,
+              method="gbm",
+              preProcess="knnImpute",
+              trControl=trainControl(method="cv", number=3),
+              verbose=FALSE)
+fitgbm
+```
+
+```{r predict_gbm, cache = TRUE}
+vPredict<-predict(fitgbm, pmlValidation)
+cmgbm<-confusionMatrix(pmlValidation$classe,vPredict)
+cmgbm
+```
+
+### 4. Support Vector Machines
+
+```{r svm, warning=FALSE, message=FALSE, cache = TRUE}
+library(e1071)
+set.seed(666)
+fitsvm<-svm(classe~., data=pmlTraining)
+fitsvm
+```
+
+```{r predict_svm, cache = TRUE}
+vPredict<-predict(fitsvm, pmlValidation)
+cmsvm<-confusionMatrix(pmlValidation$classe,vPredict)
+cmsvm
+```
+
+### 5. K-Nearest Neighbor Classifier
+
+```{r knn, cache = TRUE}
+set.seed(666)
+fitknn<-train(classe~.,
+              data=pmlTraining,
+              method="knn",
+              preProcess="knnImpute",
+              trControl=trainControl(method="cv", number=3))
+fitknn
+```
+
+```{r predict_knn, cache = TRUE}
+vPredict<-predict(fitknn, pmlValidation)
+cmknn<-confusionMatrix(pmlValidation$classe,vPredict);
+cmknn
+```
+
+# Conclusion
+
+Let's to compare the accuracy of the models to decide which one we use:
+
+```{r accuracy, cache = TRUE}
+accuracyDF<-data.frame(Model=c("lda2",
+                               "rf",
+                               "gbm",
+                               "svm",
+                               "knn"),
+                       Accuracy=c(cmlda2$overall[1],
+                                  cmrf$overall[1],
+                                  cmgbm$overall[1],
+                                  cmsvm$overall[1],
+                                  cmknn$overall[1])
+)
+accuracyDF
+```
+
+Random forest and KNN model have the best accuracy on the validation data, but RF is even more precise, so we’ll choose it for predicting for the test data set.
+
+```{r predict_test, cache=TRUE}
+testPredict<-predict(fitrf, pmlTest)
+testPredict
+```
+
